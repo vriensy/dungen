@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Paper App Dungeon Generator</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @media print {
+            body { background: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .no-print { display: none !important; }
+            .print-grid {
+                display: grid;
+                grid-template-columns: repeat(2, 1fr);
+                grid-template-rows: repeat(2, 1fr);
+                gap: 15mm;
+                page-break-inside: avoid;
+                height: 100vh;
+                box-sizing: border-box;
+                padding: 10mm;
+            }
+            .page-break {
+                page-break-after: always;
+                break-after: page;
+            }
+        }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 font-sans min-h-screen flex flex-col">
+
+    <!-- Header / Controls (Hidden on Print) -->
+    <header class="no-print bg-slate-900 text-white shadow-md p-4 sticky top-0 z-50">
+        <div class="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+            <div>
+                <h1 class="text-xl font-bold tracking-wider flex items-center gap-2">
+                    <i class="fa-solid fa-dungeon text-amber-500"></i> Paper App Dungeon Generator
+                </h1>
+                <p class="text-xs text-slate-400">Official Rulebook Layout & 50-Floor Campaign Engine</p>
+            </div>
+            
+            <div class="flex flex-wrap items-center gap-3">
+                <div class="flex items-center gap-2 bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700">
+                    <label class="text-xs text-slate-300">Master Seed:</label>
+                    <input type="text" id="masterSeedInput" value="a4f9c2b3e8" class="bg-slate-900 text-amber-400 font-mono text-sm px-2 py-0.5 rounded w-28 outline-none border border-slate-700">
+                    <button onclick="randomizeSeed()" class="text-slate-400 hover:text-white text-xs px-1"><i class="fa-solid fa-dice"></i></button>
+                </div>
+
+                <div class="flex items-center gap-2 bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700">
+                    <label class="text-xs text-slate-300">Floors (1-50):</label>
+                    <input type="number" id="totalFloorsInput" min="1" max="50" value="10" class="bg-slate-900 text-amber-400 font-mono text-sm px-2 py-0.5 rounded w-16 outline-none border border-slate-700">
+                </div>
+
+                <button onclick="generateCampaign()" class="bg-amber-600 hover:bg-amber-500 text-white text-sm font-semibold px-4 py-2 rounded-lg shadow transition flex items-center gap-2">
+                    <i class="fa-solid fa-rotate"></i> Generate
+                </button>
+
+                <button onclick="window.print()" class="bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold px-4 py-2 rounded-lg shadow transition flex items-center gap-2">
+                    <i class="fa-solid fa-print"></i> Print / Save PDF (4-up)
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 max-w-6xl w-full mx-auto p-4 md:p-6">
+        <div id="campaignContainer" class="space-y-12">
+            <!-- Dynamically generated floors will appear here -->
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="no-print bg-slate-900 text-slate-400 text-xs py-4 text-center border-t border-slate-800">
+        Paper App Dungeon • Procedural Generator & PDF Layout Engine
+    </span></footer>
+
+    <!-- Script Engine -->
+    <script>
+        // Simple MD5 / Hash PRNG implementation for isolated streams
+        function getFloorRNG(masterSeed, floorNum, streamType) {
+            let str = `${masterSeed}:floor:${floorNum}:${streamType}`;
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) {
+                hash = ((hash << 5) - hash) + str.charCodeAt(i);
+                hash |= 0;
+            }
+            let seed = Math.abs(hash);
+            return function() {
+                seed = (seed * 9301 + 49297) % 233280;
+                return seed / 233280;
+            };
+        }
+
+        function randomizeSeed() {
+            const chars = "abcdef0123456789";
+            let s = "";
+            for(let i=0; i<10; i++) s += chars[Math.floor(Math.random() * chars.length)];
+            document.getElementById('masterSeedInput').value = s;
+            generateCampaign();
+        }
+
+        // Icon Renderers mapping to rulebook elements
+        function renderEntityIcon(type, data) {
+            switch(type) {
+                case 'start':
+                    return `<div class="w-7 h-7 rounded-full border-2 border-slate-700 bg-white flex items-center justify-center text-sm font-bold shadow-sm">☺</div>`;
+                case 'stairs':
+                    return `<div class="w-7 h-7 border border-slate-700 bg-slate-200 flex flex-col justify-between p-0.5 rounded"><div class="h-1 bg-slate-700 w-full"></div><div class="h-1 bg-slate-700 w-2/3"></div><div class="h-1 bg-slate-700 w-1/3"></div></div>`;
+                case 'coin':
+                    return `<div class="w-6 h-6 rounded-full border border-slate-600 bg-amber-200 flex items-center justify-center text-[10px] font-bold text-amber-900 shadow-sm">¢</div>`;
+                case 'chest':
+                    return `<div class="w-6 h-6 rounded border border-slate-600 bg-amber-100 flex items-center justify-center text-[10px] font-bold text-amber-800">⬢<span class="absolute text-[8px]">?</span></div>`;
+                case 'monster':
+                    return `<div class="w-6 h-6 rounded-md border border-slate-700 bg-rose-100 flex items-center justify-center text-xs font-black text-rose-900 shadow-sm">${data.tier}</div>`;
+                case 'mystery_monster':
+                    return `<div class="w-6 h-6 rounded-md border border-slate-700 bg-purple-100 flex items-center justify-center text-xs font-black text-purple-900 shadow-sm">?</div>`;
+                case 'heart':
+                    return `<div class="w-6 h-6 flex items-center justify-center text-rose-600 text-sm"><i class="fa-solid fa-heart"></i></div>`;
+                case 'mystery_heart':
+                    return `<div class="w-6 h-6 rounded-full border border-rose-400 bg-rose-50 flex items-center justify-center text-[10px] font-bold text-rose-700">♥?</div>`;
+                case 'spiderweb':
+                    return `<div class="w-6 h-6 flex items-center justify-center text-slate-500 text-xs"><i class="fa-solid fa-spider"></i></div>`;
+                case 'teleporter':
+                    return `<div class="w-6 h-6 rounded-full border border-cyan-500 bg-cyan-50 flex items-center justify-center text-[10px] text-cyan-700 font-bold">☯</div>`;
+                case 'key':
+                    return `<div class="w-6 h-6 flex items-center justify-center text-amber-700 text-xs"><i class="fa-solid fa-key"></i></div>`;
+                default:
+                    return `<div class="w-3 h-3 rounded-full bg-slate-300"></div>`;
+            }
+        }
+
+        function generateFloorHTML(floorNum, masterSeed) {
+            const rngLayout = getFloorRNG(masterSeed, floorNum, 'layout');
+            const rngContent = getFloorRNG(masterSeed, floorNum, 'content');
+
+            // 12x12 grid generation
+            const gridWidth = 12;
+            const gridHeight = 12;
+            
+            // Random start & end positions
+            const startX = Math.floor(rngLayout() * gridWidth);
+            const startY = Math.floor(rngLayout() * (gridHeight / 3));
+            const endX = Math.floor(rngLayout() * gridWidth);
+            const endY = Math.floor(gridHeight - 1 - rngLayout() * (gridHeight / 3));
+
+            // Generate entities list
+            let entities = [];
+            
+            // Add Start and Stairs
+            entities.push({x: startX, y: startY, type: 'start'});
+            entities.push({x: endX, y: endY, type: 'stairs'});
+
+            // Add Monsters, Coins, Chests, Hearts, etc.
+            const entityTypes = ['coin', 'coin', 'monster', 'monster', 'chest', 'heart', 'spiderweb', 'mystery_monster', 'teleporter', 'key'];
+            const count = 12 + Math.floor(rngContent() * 6); // 12 to 17 items
+            
+            for(let i=0; i<count; i++) {
+                let ex = Math.floor(rngContent() * gridWidth);
+                let ey = Math.floor(rngContent() * gridHeight);
+                // Avoid overlapping start/end
+                if((ex === startX && ey === startY) || (ex === endX && ey === endY)) continue;
+                
+                let type = entityTypes[Math.floor(rngContent() * entityTypes.length)];
+                let data = {};
+                if(type === 'monster') {
+                    data.tier = Math.min(6, Math.max(1, Math.floor(rngContent() * (floorNum > 5 ? 6 : 4)) + 1));
+                }
+                entities.push({x: ex, y: ey, type: type, ...data});
+            }
+
+            // Build grid cells HTML
+            let gridCellsHTML = '';
+            for(let y=0; y<gridHeight; y++) {
+                for(let x=0; x<gridWidth; x++) {
+                    let matched = entities.filter(e => e.x === x && e.y === y);
+                    let content = '';
+                    if(matched.length > 0) {
+                        content = renderEntityIcon(matched[0].type, matched[0]);
+                    } else {
+                        // Dot grid background pattern matching paper app
+                        content = `<div class="w-1.5 h-1.5 rounded-full bg-slate-300"></div>`;
+                    }
+                    gridCellsHTML += `<div class="relative border border-slate-200 flex items-center justify-center aspect-square">${content}</div>`;
+                }
+            }
+
+            // Return full floor card markup
+            return `
+                <div class="bg-white border-2 border-slate-300 rounded-xl shadow-sm p-4 flex flex-col justify-between h-[650px] relative">
+                    <!-- Floor Header -->
+                    <div class="flex justify-between items-center border-b border-slate-200 pb-2 mb-2">
+                        <h2 class="text-base font-black text-slate-800 tracking-wider">Floor ${floorNum}</h2>
+                        <span class="text-[10px] font-mono text-slate-400">Seed: ${masterSeed.substring(0,6)}</span>
+                    </div>
+
+                    <!-- 12x12 Dungeon Grid -->
+                    <div class="grid grid-cols-12 gap-0 border border-slate-300 bg-slate-50/50 rounded p-1 flex-1">
+                        ${gridCellsHTML}
+                    </div>
+
+                    <!-- Rulebook Stat Tracking Quadrants -->
+                    <div class="grid grid-cols-4 gap-2 mt-3 pt-3 border-t border-slate-200 text-center">
+                        <div class="bg-slate-50 border border-slate-200 rounded p-1">
+                            <div class="text-[9px] font-bold text-slate-500 uppercase">Starting</div>
+                            <div class="text-xs font-mono font-bold mt-1">HP: 10</div>
+                            <div class="text-[10px] font-mono text-amber-700 mt-0.5">¢: 0</div>
+                        </div>
+                        <div class="bg-slate-50 border border-slate-200 rounded p-1">
+                            <div class="text-[9px] font-bold text-slate-500 uppercase">+ Gain</div>
+                            <div class="h-6 border-b border-dashed border-slate-300"></div>
+                        </div>
+                        <div class="bg-slate-50 border border-slate-200 rounded p-1">
+                            <div class="text-[9px] font-bold text-slate-500 uppercase">- Loss</div>
+                            <div class="h-6 border-b border-dashed border-slate-300"></div>
+                        </div>
+                        <div class="bg-slate-50 border border-slate-200 rounded p-1">
+                            <div class="text-[9px] font-bold text-slate-500 uppercase">Ending</div>
+                            <div class="text-xs font-mono font-bold mt-1">/ HP</div>
+                            <div class="text-[10px] font-mono text-amber-700 mt-0.5">¢</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function generateCampaign() {
+            const masterSeed = document.getElementById('masterSeedInput').value.trim() || 'a4f9c2b3e8';
+            const totalFloors = parseInt(document.getElementById('totalFloorsInput').value) || 10;
+            const container = document.getElementById('campaignContainer');
+            
+            container.innerHTML = '';
+
+            let htmlContent = '';
+            for(let f=1; f<=totalFloors; f++) {
+                if((f - 1) % 4 === 0) {
+                    if(f > 1) htmlContent += `</div></div>`; // Close previous page
+                    htmlContent += `<div class="print-grid page-break"><div class="contents">`;
+                }
+                htmlContent += generateFloorHTML(f, masterSeed);
+            }
+            htmlContent += `</div></div>`; // Close final page
+            
+            container.innerHTML = htmlContent;
+        }
+
+        // Initial load
+        window.onload = generateCampaign;
+    </script>
+</body>
+</html>
